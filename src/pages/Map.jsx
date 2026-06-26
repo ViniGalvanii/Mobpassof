@@ -1,11 +1,13 @@
 import { useEffect, useState, useRef } from "react";
-import { GoogleMap, Marker, InfoWindow, useJsApiLoader } from "@react-google-maps/api";
+import { GoogleMap, Marker, InfoWindow, useJsApiLoader, StandaloneSearchBox } from "@react-google-maps/api";
 import { getPoints, postPoint, deletePoint } from '../services/mapService';
 import { useAuth } from "../contexts/AuthContext";
 import { Navbar } from "../components/Navbar";
 import { BottomNav } from "../components/BottomNav";
 
 const containerStyle = { width: "100%", height: "100%" };
+const PASSO_FUNDO = { lat: -28.2620, lng: -52.4083 };
+const LIBRARIES = ["places"];
 const MAP_STYLES = [
   { elementType:"geometry", stylers:[{color:"#f0ebff"}] },
   { featureType:"road", elementType:"geometry", stylers:[{color:"#ffffff"}] },
@@ -22,15 +24,19 @@ export const Map = () => {
   const [markers, setMarkers] = useState([]);
   const [selectedMarker, setSelectedMarker] = useState(null);
   const [userLocation, setUserLocation] = useState(null);
-  const [mapCenter, setMapCenter] = useState({ lat:-29.1678, lng:-51.1794 });
+  const [mapCenter, setMapCenter] = useState(PASSO_FUNDO);
   const [addingPoint, setAddingPoint] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [pendingCoord, setPendingCoord] = useState(null);
   const [toast, setToast] = useState(null);
   const [loading, setLoading] = useState(false);
   const mapRef = useRef(null);
+  const searchBoxRef = useRef(null);
 
-  const { isLoaded } = useJsApiLoader({ googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY });
+  const { isLoaded } = useJsApiLoader({
+    googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY,
+    libraries: LIBRARIES,
+  });
 
   const showToast = (msg, type="success") => { setToast({msg,type}); setTimeout(()=>setToast(null),3000); };
 
@@ -38,7 +44,7 @@ export const Map = () => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => { const c={lat:pos.coords.latitude,lng:pos.coords.longitude}; setUserLocation(c); setMapCenter(c); },
-        () => {}
+        () => {} // se negar, fica em Passo Fundo
       );
     }
   }, []);
@@ -54,6 +60,16 @@ export const Map = () => {
   const handleMapClick = (event) => {
     if (!addingPoint) return;
     setPendingCoord({ lat: event.latLng.lat(), lng: event.latLng.lng() });
+  };
+
+  const handlePlacesChanged = () => {
+    const places = searchBoxRef.current?.getPlaces();
+    if (!places?.length) return;
+    const loc = places[0].geometry?.location;
+    if (!loc) return;
+    const pos = { lat: loc.lat(), lng: loc.lng() };
+    mapRef.current?.panTo(pos);
+    mapRef.current?.setZoom(17);
   };
 
   const handleSavePoint = async () => {
@@ -90,36 +106,63 @@ export const Map = () => {
             {addingPoint ? (pendingCoord?"Preencha os dados da parada":"Toque no mapa para marcar") : `${markers.length} parada(s) cadastrada(s)`}
           </span>
         </div>
-        <span className="text-xs text-violet-500 font-semibold">Tempo real</span>
+        <span className="text-xs text-violet-500 font-semibold">Passo Fundo/RS</span>
       </div>
 
       <div className="flex-1 relative">
         {isLoaded ? (
-          <GoogleMap mapContainerStyle={containerStyle} center={mapCenter} zoom={13} onClick={handleMapClick} onLoad={(map)=>{mapRef.current=map;}}
-            options={{ styles:MAP_STYLES, disableDefaultUI:true }}>
-            {userLocation && <Marker position={userLocation} title="Você está aqui" icon={pinIcon("#7C3AED","#fff")} />}
-            {markers.map(m=>(
-              <Marker key={m.id} position={m.position} title={m.title} onClick={()=>setSelectedMarker(m)} icon={pinIcon("#5B21B6","#EDE9FE")} />
-            ))}
-            {pendingCoord && <Marker position={pendingCoord} icon={pinIcon("#F59E0B","#FEF3C7")} />}
-            {selectedMarker && (
-              <InfoWindow position={selectedMarker.position} onCloseClick={()=>setSelectedMarker(null)}>
-                <div className="p-2 min-w-[180px]">
-                  <div className="flex items-center gap-2 mb-2">
-                    <div className="w-8 h-8 bg-violet-600 rounded-lg flex items-center justify-center flex-shrink-0">
-                      <span className="text-white font-bold text-xs">{selectedMarker.lineNumber}</span>
-                    </div>
-                    <div>
-                      <p className="font-bold text-gray-800 text-sm leading-tight">{selectedMarker.lineName}</p>
-                      <p className="text-xs text-gray-500">{selectedMarker.description}</p>
-                    </div>
-                  </div>
-                  <p className="text-[10px] text-gray-400 mb-2">{selectedMarker.position.lat.toFixed(5)}, {selectedMarker.position.lng.toFixed(5)}</p>
-                  <button onClick={()=>handleDeletePoint(selectedMarker.id)} className="w-full text-xs text-red-500 border border-red-200 rounded-lg py-1 hover:bg-red-50 transition-colors">Remover parada</button>
+          <>
+            {/* Barra de pesquisa de endereço */}
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 w-[88%] max-w-sm">
+              <StandaloneSearchBox
+                onLoad={ref => (searchBoxRef.current = ref)}
+                onPlacesChanged={handlePlacesChanged}
+              >
+                <div className="flex items-center bg-white rounded-2xl shadow-lg border border-violet-100 px-3 py-2 gap-2">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#7C3AED" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                  </svg>
+                  <input
+                    type="text"
+                    placeholder="Pesquisar endereço em Passo Fundo..."
+                    className="flex-1 text-sm text-gray-700 placeholder:text-gray-400 focus:outline-none bg-transparent"
+                  />
                 </div>
-              </InfoWindow>
-            )}
-          </GoogleMap>
+              </StandaloneSearchBox>
+            </div>
+
+            <GoogleMap
+              mapContainerStyle={containerStyle}
+              center={mapCenter}
+              zoom={14}
+              onClick={handleMapClick}
+              onLoad={(map) => { mapRef.current = map; }}
+              options={{ styles:MAP_STYLES, disableDefaultUI:true }}
+            >
+              {userLocation && <Marker position={userLocation} title="Você está aqui" icon={pinIcon("#7C3AED","#fff")} />}
+              {markers.map(m=>(
+                <Marker key={m.id} position={m.position} title={m.title} onClick={()=>setSelectedMarker(m)} icon={pinIcon("#5B21B6","#EDE9FE")} />
+              ))}
+              {pendingCoord && <Marker position={pendingCoord} icon={pinIcon("#F59E0B","#FEF3C7")} />}
+              {selectedMarker && (
+                <InfoWindow position={selectedMarker.position} onCloseClick={()=>setSelectedMarker(null)}>
+                  <div className="p-2 min-w-[180px]">
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="w-8 h-8 bg-violet-600 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <span className="text-white font-bold text-xs">{selectedMarker.lineNumber}</span>
+                      </div>
+                      <div>
+                        <p className="font-bold text-gray-800 text-sm leading-tight">{selectedMarker.lineName}</p>
+                        <p className="text-xs text-gray-500">{selectedMarker.description}</p>
+                      </div>
+                    </div>
+                    <p className="text-[10px] text-gray-400 mb-2">{selectedMarker.position.lat.toFixed(5)}, {selectedMarker.position.lng.toFixed(5)}</p>
+                    <button onClick={()=>handleDeletePoint(selectedMarker.id)} className="w-full text-xs text-red-500 border border-red-200 rounded-lg py-1 hover:bg-red-50 transition-colors">Remover parada</button>
+                  </div>
+                </InfoWindow>
+              )}
+            </GoogleMap>
+          </>
         ) : (
           <div className="w-full h-full flex items-center justify-center bg-violet-50">
             <div className="text-center">
@@ -128,7 +171,9 @@ export const Map = () => {
             </div>
           </div>
         )}
-        <div className="absolute right-4 top-4 z-10">
+
+        {/* Botão centralizar no usuário */}
+        <div className="absolute right-4 top-16 z-10">
           <button onClick={centerOnUser} className="w-10 h-10 bg-white rounded-xl shadow-lg flex items-center justify-center text-violet-700 hover:bg-violet-50 active:scale-95 transition-all border border-violet-100">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3A8.994 8.994 0 0013 3.06V1h-2v2.06A8.994 8.994 0 003.06 11H1v2h2.06A8.994 8.994 0 0011 20.94V23h2v-2.06A8.994 8.994 0 0020.94 13H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/></svg>
           </button>
