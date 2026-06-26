@@ -23,17 +23,24 @@ export function Login() {
 
     const timer = setTimeout(() => setDemorou(true), 3000);
 
-    try {
-      const data = await signIn(email, senha);
-      login(data.token);
-      navigate("/map");
-    } catch (err) {
-      setErro(err.message);
-    } finally {
-      clearTimeout(timer);
-      setLoading(false);
-      setDemorou(false);
-    }
+    const tryLogin = async (tentativa = 1) => {
+      try {
+        const data = await signIn(email, senha);
+        login(data.token);
+        navigate("/map");
+      } catch (err) {
+        if (tentativa < 3) {
+          await new Promise(res => setTimeout(res, 2000));
+          return tryLogin(tentativa + 1);
+        }
+        setErro(err.message);
+      }
+    };
+
+    await tryLogin();
+    clearTimeout(timer);
+    setLoading(false);
+    setDemorou(false);
   };
 
   return (
@@ -65,7 +72,7 @@ export function Login() {
               <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-center gap-2">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="#F59E0B"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
                 <p className="text-amber-700 text-xs font-medium">
-                  A API está acordando do modo inativo. Aguarde alguns segundos...
+                  A API está acordando do modo inativo, tentando reconectar...
                 </p>
               </div>
             )}
